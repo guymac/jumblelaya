@@ -1,0 +1,600 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"
+  "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="user-scalable=no, width=device-width" />
+<title>Jumble-Laya</title>
+<script type="text/javascript"
+   src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js">
+</script>
+<script type="text/javascript">
+/* <![CDATA[ */
+// master game state switch
+var isRunning = false;
+
+// Duration of a round in seconds
+var gameDuration = 300;
+
+// time left in the round
+var timeRemaining = gameDuration;
+
+// words available
+// a hashed array (word => points)
+// zero points for word user hasn't found
+var wordlist = [];
+
+// count of rounds played
+var roundNumber = 0;
+
+// player score in round
+var playerScore = 0;
+
+// player score overall
+var playerTotal = 0;
+
+// number of words accepted
+var wordcount = 0;
+
+// number of words remaining
+var remain = 0;
+
+//clock timer ID
+var clock;
+
+$('#entry').val('');
+$('#messages').val('');
+
+function init() 
+{
+	reset();
+}
+
+function reset()
+{
+    if (isRunning) 
+    {
+        stop();
+    }
+    else
+    {
+        start();
+    }
+}
+
+function start()
+{
+
+     if (playerScore <= 0) 
+     {
+        roundNumber = 0;
+        playerTotal = 0;
+     }
+    
+     playerScore = 0;
+     wordcount = 0;
+     
+     $('#score').text(playerScore);
+     $('#total').text(playerTotal);
+
+     $('#entry').val('');
+     $('#results tbody').empty();
+     $('#entry').attr('disabled','disabled');
+     // clear messages
+     $('#messages').val('');
+     $('#summary').val('');
+     $('#timer').val('Loading...');
+     
+     // increment round
+     $('#round').text(++roundNumber);
+    
+     var url = '/words';
+     
+     $.post
+     (
+             url, 
+             function(str) 
+             { 
+                 setBoard(str); 
+
+                 $.get
+                 (
+                         url + '?' + str, 
+                         function(text)
+                         {
+                             var words = text.split('\n');
+                             var html = '';
+                             for (i = 0 ; i < words.length -1 ; i++) 
+                             {
+                                 wordlist[words[i].trim()] = 0;
+                                 
+                                 if (i % 4 === 0)
+                                 {
+                                     html += '<tr>';
+                                 }
+                                 
+                                 html += '<th></th><td></td>';
+
+                                 if (i % 4 === 3)
+                                 {
+                                     html += '</tr>';
+                                 }
+                                                                  
+                             }
+                             // not sure why this property isn't set automatically
+                             $('#results tbody').html(html);
+                             
+                             remain = words.length - 1;
+                             
+                             caption();
+                             $('#entry').removeAttr('disabled');
+                             $('#entry').focus();
+                             // ready for user input
+                             $('#start').text('Stop');
+
+                             setClock();
+
+                             isRunning = true;
+                                                                                  
+                         }
+                  );
+                 
+              }
+     ); 
+     
+}
+
+function stop()
+{
+    handleGuesses();
+    isRunning = false;
+
+    results(wordlist);
+    wordlist = [];
+    timeRemaining = gameDuration;
+    clearTimeout(clock);
+
+    if ( playerScore < 1 ) 
+    {
+       $('#start').text('Play Again');
+       $('#timer').text('Game Over!');
+       //checkScores();
+    } 
+    else 
+    {
+       $('#start').text('Continue');
+       $('#timer').text('Play another round?');
+    }
+    
+}
+
+function setBoard(letters) 
+{
+    if (letters.length < 16)
+    {
+        throw "Invalid board string '" + letters + "'.";
+    }
+    
+    for (var i = 0 ; i < 4 ; i++) 
+    {
+        for (var j = 0 ; j < 4 ; j++) 
+        {
+            var letter = letters.substring(i*4 + j, i*4 + j + 1);
+            $('#tile' + i + j).text(letter === 'q' ? 'qu' : letter);
+        }
+   }
+}
+
+function setClock() 
+{
+
+    switch (--timeRemaining) 
+    {
+       case 0:
+          stop();
+          //$('#summary').text('');
+          return;
+       case 1:
+           $('#timer').text('One second remaining.');
+          break;
+       default:
+           $('#timer').text(timeRemaining + ' seconds remaining.');
+    }
+
+    clock = setTimeout("setClock()", 1000);
+ }
+
+function getPoints(word) 
+{
+    switch (word.length) 
+    {
+        case 0:
+            return 0;
+        case 1:
+            return 0;
+        case 2:
+            return 0;        
+        case 3:
+            return 1;
+        case 4:
+            return 1;
+        case 5:
+            return 2;
+        case 6:
+            return 3;
+        case 7:
+            return 5;
+        default:
+            return 11;
+    }
+ }
+
+function handleGuesses() 
+{
+    if ( ! isRunning ) 
+    {
+       return false;
+    }
+
+    try
+    {
+       var list = $('#entry').val().split(/\W+/);
+       for (var i = 0 ; i < list.length ; i++) 
+       {
+          if (list[i].search(/\w{3}/) >= 0)
+          {
+              guess(list[i]);
+          }
+       }
+   
+       $('#entry').val('');
+    }
+    catch (ex)
+    {
+        alert(ex);
+    }
+    
+    return false;
+ }
+
+ function guess(word) 
+ {
+     var pts = wordlist[word];
+
+     if (pts === 0) 
+     {
+          pts = getPoints(word);
+          wordlist[word] = pts;
+          message('"' + word + '" scored ' + pts + '.');
+          accept(word, pts);
+
+          --remain;
+          caption();
+    } 
+    else if (pts > 0)
+    {
+        message('"' + word + '" already used.');
+    }
+    else
+    {
+        message('"' + word + '" was not found.');
+    }
+}
+
+function caption() 
+{
+     var summary = 'You have ' + remain + ' word';
+     if (remain != 1) 
+     {
+        summary += 's';
+     }
+
+     summary += ' to go...';
+
+     $('#summary').text(summary);
+}
+
+function message(msg)
+{
+     $("#messages").val(msg + '\n' + $("#messages").val());
+}
+
+function accept(wrd, pts) 
+{
+    playerScore += pts;
+    $('#score').text(playerScore);
+    playerTotal += pts;
+    $('#total').text(playerTotal);
+
+    var th = $('#results tbody tr th:eq(' + wordcount + ')');
+    var td = th.next();
+    th.text(wrd);
+    td.text(pts);
+
+    ++wordcount;
+ }
+
+function results(words) 
+{
+    for (var word in wordlist) 
+    {
+        var pts = wordlist[word];
+        if ( pts === 0 ) 
+        { 
+            accept(word, -1 * getPoints(word)); 
+        }
+    }
+ }
+/* ]]> */
+</script>
+<style type="text/css">
+* 
+{
+   font-family: 'Comic Sans MS', comic sans ms, 'Trebuchet MS', Trebuchet, Verdana,
+      Tahoma, Sans-Serif;
+   text-align: center;
+}
+
+body 
+{
+   margin: 0;
+   padding: 0;
+}
+
+select,select option 
+{
+   text-align: left;
+   font-weight: bold;
+   background-color: #ccc;
+   font-size: normal;
+}
+
+h1,h4 
+{
+   padding: 6px;
+   background-color: #44f;
+   color: white;
+   text-transform: uppercase;
+   letter-spacing: 2em;
+   -moz-border-radius: 12px;
+   -webkit-border-radius: 12px;
+   border-radius: 12px;   
+   border: 4px solid #ccf;
+   text-align: center;
+   clear: both;
+}
+
+p 
+{
+   text-align: justify
+}
+
+div#left 
+{
+    float: left;
+    text-align: center;
+}
+
+div#right
+{
+    width: 50%;
+    margin-left: 50%;
+    text-align: center;
+}
+
+#control 
+{
+   text-align: center;
+}
+
+#control div 
+{
+   display: inline;
+   padding: 4px;
+   background-color: #ccc;
+   border: 2px solid #44f;
+   -moz-border-radius: 7px;
+   -webkit-border-radius: 7px;
+   border-radius: 7px;
+   text-align: center;
+}
+
+fieldset 
+{
+   border: none;
+}
+
+input,textarea 
+{
+   padding: 4px;
+   background-color: #ccc;
+   border: 2px solid #44f;
+   -moz-border-radius: 4px;
+   -webkit-border-radius: 4px;
+   border-radius: 4px;
+   font-size: normal;
+   text-align: left;
+   font-weight: bold;
+}
+
+input#name 
+{
+   font-size: large;
+   font-weight: bold;
+   text-transform: uppercase;
+}
+
+caption 
+{
+   text-align: center;
+}
+
+table#board 
+{
+   padding: 0px;
+   margin-left: auto;
+   margin-right: auto;
+   margin-top: 8px;
+}
+
+table#board td 
+{
+   text-align: center;
+   width: 75px;
+   height: 75px;
+   margin: 6px;
+   padding: 0 5px 5px 0;
+   background-color: #ccc;
+   font-size: 64px;
+   color: #44f;
+   border: 4px solid #ccc;
+   text-shadow: #222 5px 5px;
+   vertical-align: absmiddle;
+   -moz-border-radius: 5px;
+   -webkit-border-radius: 5px;
+   border-radius: 5px;
+}
+
+table#points 
+{
+   border-collapse: collapse;
+   margin: auto;
+}
+
+table#points td 
+{
+   border: 2px solid #44f;
+   padding-right: 2em;
+   color: #008;
+   font-size: small;
+   text-align: right;
+   padding-left: 2em;
+}
+
+table#points th 
+{
+   padding: 4px;
+   background-color: #ccc;
+   border: 2px solid #44f;
+   -moz-border-radius: 4px;
+   text-align: left;
+   font-size: small;
+}
+
+table#results th
+{
+    text-align: left;
+    color: blue;
+    padding: 0 3em 0 2.5em;
+    font-weight: normal;
+}
+
+table#results td
+{
+    text-align: right;
+}
+</style>
+</head>
+
+<body>
+<h1>Jumble-Laya</h1>
+
+<div id="left">
+<form id="control" onsubmit="return false;" action="">
+<fieldset>
+<div class="button" id="start" onclick="init()">Start</div>
+<div>Score <span id="score">0</span></div>
+<div>Total <span id="total">0</span></div>
+<div>Round <span id="round">1</span></div>
+</fieldset></form>
+
+<div id="timer">Click 'Start' to begin.</div>
+
+<table id="board">
+   <tr>
+      <td class="tile" id="tile00">p</td>
+      <td class="tile" id="tile01">l</td>
+      <td class="tile" id="tile02">a</td>
+      <td class="tile" id="tile03">y</td>
+   </tr>
+   <tr>
+      <td class="tile" id="tile10">t</td>
+      <td class="tile" id="tile11">h</td>
+      <td class="tile" id="tile12">i</td>
+      <td class="tile" id="tile13">s</td>
+   </tr>
+   <tr>
+      <td class="tile" id="tile20">g</td>
+      <td class="tile" id="tile21">a</td>
+      <td class="tile" id="tile22">m</td>
+      <td class="tile" id="tile23">e</td>
+   </tr>
+   <tr>
+      <td class="tile" id="tile30">n</td>
+      <td class="tile" id="tile31">o</td>
+      <td class="tile" id="tile32">w</td>
+      <td class="tile" id="tile33">!!</td>
+   </tr>
+</table>
+
+
+<form id="input" onsubmit="handleGuesses(); return false;" action="">
+<fieldset><input type="text" size="33" id="entry" autocomplete="off"
+   value="Input words here..." onfocus="this.value=''" />
+<br />   
+<textarea rows="3" cols="32" id="messages"></textarea>
+</fieldset></form>
+</div>
+
+<div id="right">
+
+<table id="results">
+   <caption id="summary"></caption>
+    <tbody>
+        <tr><td></td></tr>
+    </tbody>
+</table>
+
+<div id="rules">
+<h2>How To Play</h2>
+<p>Words are formed from adjacent tiles in any direction and must be three
+letters or longer. A tile cannot be used more than once per word. Score is based
+on word length as shown in the table below. Missed words count against you. The
+game is over when your score for the round is zero or less.</p>
+
+<table id="points">
+   <tr>
+      <th>Letters</th>
+      <th>Points</th>
+   </tr>
+   <tr>
+      <td>3</td>
+      <td>1</td>
+   </tr>
+   <tr>
+      <td>4</td>
+      <td>1</td>
+   </tr>
+   <tr>
+      <td>5</td>
+      <td>2</td>
+   </tr>
+   <tr>
+      <td>6</td>
+      <td>3</td>
+   </tr>
+   <tr>
+      <td>7</td>
+      <td>5</td>
+   </tr>
+   <tr>
+      <td>8+</td>
+      <td>11</td>
+   </tr>
+</table>
+</div>
+
+</div>
+
+</body>
+</html>
